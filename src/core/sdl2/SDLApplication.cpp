@@ -223,12 +223,9 @@ static int sdl_event_watch(void *userdata, SDL_Event *in_event);
 
 static void refresh_controllers()
 {
-#if defined(__IPHONEOS__) || defined(__ANDROID__) || defined(__OHOS__)
-	// TODO: check why invalid pointers get set in SDL's controller subsystem which causes segfault
-	{
-		return;
-	}
-#endif
+	// 掌机/手柄支持：上游原先在 iOS/Android/OHOS 上整体跳过手柄初始化
+	// (TODO: SDL controller 子系统在移动端疑似无效指针导致段错误)。
+	// 这里放开以便移动端获得原生手柄输入；如遇崩溃需结合 SDL 版本排查。
 	if (!SDL_WasInit(SDL_INIT_GAMECONTROLLER))
 	{
 		SDL_Init(SDL_INIT_GAMECONTROLLER);
@@ -668,6 +665,12 @@ protected:
 	int lastMouseX;
 	int lastMouseY;
 
+	// -- 原生手柄：左摇杆当前方向状态（转换为 VK_PADUP/DOWN/LEFT/RIGHT）
+	bool padStickLeft = false;
+	bool padStickRight = false;
+	bool padStickUp = false;
+	bool padStickDown = false;
+
 #ifdef KRKRSDL2_MACOS_NATIVE_PIXELS
 	float macOSBackingScaleX = 1.0f;
 	float macOSBackingScaleY = 1.0f;
@@ -712,6 +715,9 @@ public:
 	/* Called from tTJSNI_Window */
 	virtual tTVPMouseCursorState GetMouseCursorState() const override;
 	void RestoreMouseCursor();
+	/* 原生手柄：左摇杆 -> VK_PAD 方向键 */
+	void UpdatePadStickDirection(int axis, Sint16 value);
+	void SetPadDirection(bool &state, tjs_uint vk, bool pressed);
 	/* Called from tTJSNI_Window */
 	virtual void HideMouseCursor() override;
 	/* Called from tTJSNI_Window */
@@ -3121,6 +3127,52 @@ void TVPWindowWindow::window_receive_event(SDL_Event event)
 	}
 }
 
+void TVPWindowWindow::UpdatePadStickDirection(int axis, Sint16 value)
+{
+	// 左摇杆死区：约为 SDL 轴满量程 (32767) 的 1/4
+	const Sint16 kPadStickDeadZone = 8000;
+	switch (axis)
+	{
+		case SDL_CONTROLLER_AXIS_LEFTX:
+			this->SetPadDirection(this->padStickRight, VK_PADRIGHT, value > kPadStickDeadZone);
+			this->SetPadDirection(this->padStickLeft, VK_PADLEFT, value < -kPadStickDeadZone);
+			break;
+		case SDL_CONTROLLER_AXIS_LEFTY:
+			this->SetPadDirection(this->padStickDown, VK_PADDOWN, value > kPadStickDeadZone);
+			this->SetPadDirection(this->padStickUp, VK_PADUP, value < -kPadStickDeadZone);
+			break;
+		default:
+			break;
+	}
+}
+
+void TVPWindowWindow::SetPadDirection(bool &state, tjs_uint vk, bool pressed)
+{
+	if (state == pressed)
+	{
+		return;
+	}
+	state = pressed;
+	if (!this->TJSNativeInstance->CanDeliverEvents())
+	{
+		return;
+	}
+	tjs_uint32 s = TVP_TShiftState_To_uint32(GetShiftState());
+	s |= GetMouseButtonState();
+	if (pressed)
+	{
+		TVPPostInputEvent(new tTVPOnKeyDownInputEvent(this->TJSNativeInstance, vk, s));
+	}
+	else
+	{
+		if (!SDL_IsTextInputActive())
+		{
+			TVPPostInputEvent(new tTVPOnKeyPressInputEvent(this->TJSNativeInstance, vk));
+		}
+		TVPPostInputEvent(new tTVPOnKeyUpInputEvent(this->TJSNativeInstance, vk, s));
+	}
+}
+
 bool TVPWindowWindow::window_receive_event_input(SDL_Event event)
 {
 	if (this->isBeingDeleted)
@@ -3265,6 +3317,15 @@ bool TVPWindowWindow::window_receive_event_input(SDL_Event event)
 				{
 					TVPPostInputEvent(new tTVPOnTouchScalingInputEvent(this->TJSNativeInstance, 0, event.mgesture.dDist, event.mgesture.x, event.mgesture.y, 0));
 					TVPPostInputEvent(new tTVPOnTouchRotateInputEvent(this->TJSNativeInstance, 0, event.mgesture.dTheta, event.mgesture.dDist, event.mgesture.x, event.mgesture.y, 0));
+					return true;
+				}
+				case SDL_CONTROLLERAXISMOTION:
+				{
+					if (event.caxis.axis == SDL_CONTROLLER_AXIS_LEFTX ||
+						event.caxis.axis == SDL_CONTROLLER_AXIS_LEFTY)
+					{
+						this->UpdatePadStickDirection(event.caxis.axis, event.caxis.value);
+					}
 					return true;
 				}
 				case SDL_CONTROLLERBUTTONDOWN:
