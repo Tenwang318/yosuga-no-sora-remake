@@ -247,7 +247,7 @@ static void refresh_controllers()
 	sdl_controller_num = SDL_NumJoysticks();
 	if (sdl_controller_num)
 	{
-		sdl_controllers = (SDL_GameController**)SDL_malloc(sizeof(SDL_GameController*) * sdl_controller_num);
+		sdl_controllers = (SDL_GameController**)SDL_calloc(sdl_controller_num, sizeof(SDL_GameController*));
 		if (!sdl_controllers)
 		{
 			sdl_controller_num = 0;
