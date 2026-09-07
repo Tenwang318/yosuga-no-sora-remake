@@ -670,6 +670,9 @@ protected:
 	bool padStickRight = false;
 	bool padStickUp = false;
 	bool padStickDown = false;
+	// -- 右摇杆 Y 轴方向状态（回顾页连续滚动）
+	bool padStickRYUp = false;
+	bool padStickRYDown = false;
 
 #ifdef KRKRSDL2_MACOS_NATIVE_PIXELS
 	float macOSBackingScaleX = 1.0f;
@@ -3141,6 +3144,11 @@ void TVPWindowWindow::UpdatePadStickDirection(int axis, Sint16 value)
 			this->SetPadDirection(this->padStickDown, VK_PADDOWN, value > kPadStickDeadZone);
 			this->SetPadDirection(this->padStickUp, VK_PADUP, value < -kPadStickDeadZone);
 			break;
+		case SDL_CONTROLLER_AXIS_RIGHTY:
+			// 右摇杆 Y：推下/推上产生 VK_PADDOWN/VK_PADUP（回顾页长按连续滚动由脚本 Timer 处理）
+			this->SetPadDirection(this->padStickRYDown, VK_PADDOWN, value > kPadStickDeadZone);
+			this->SetPadDirection(this->padStickRYUp, VK_PADUP, value < -kPadStickDeadZone);
+			break;
 		default:
 			break;
 	}
@@ -3322,7 +3330,8 @@ bool TVPWindowWindow::window_receive_event_input(SDL_Event event)
 				case SDL_CONTROLLERAXISMOTION:
 				{
 					if (event.caxis.axis == SDL_CONTROLLER_AXIS_LEFTX ||
-						event.caxis.axis == SDL_CONTROLLER_AXIS_LEFTY)
+						event.caxis.axis == SDL_CONTROLLER_AXIS_LEFTY ||
+						event.caxis.axis == SDL_CONTROLLER_AXIS_RIGHTY)
 					{
 						this->UpdatePadStickDirection(event.caxis.axis, event.caxis.value);
 					}
